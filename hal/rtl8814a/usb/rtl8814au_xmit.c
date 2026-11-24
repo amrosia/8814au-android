@@ -18,6 +18,12 @@
 #include <rtl8814a_hal.h>
 
 
+/* kCFI: tasklet callbacks must be void (*)(unsigned long) */
+static void xmit_tasklet_cfi(unsigned long data)
+{
+	rtl8814au_xmit_tasklet((void *)data);
+}
+
 s32	rtl8814au_init_xmit_priv(_adapter *padapter)
 {
 	struct xmit_priv	*pxmitpriv = &padapter->xmitpriv;
@@ -25,8 +31,7 @@ s32	rtl8814au_init_xmit_priv(_adapter *padapter)
 
 #ifdef PLATFORM_LINUX
 	tasklet_init(&pxmitpriv->xmit_tasklet,
-		     (void(*))rtl8814au_xmit_tasklet,
-		     (unsigned long)padapter);
+		     xmit_tasklet_cfi, (unsigned long)padapter);
 #endif
 #ifdef CONFIG_TX_EARLY_MODE
 	pHalData->bEarlyModeEnable = padapter->registrypriv.early_mode;

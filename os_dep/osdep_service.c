@@ -1798,7 +1798,9 @@ void rtw_udelay_os(int us)
 void rtw_yield_os(void)
 {
 #ifdef PLATFORM_LINUX
-	yield();
+	/* Android GKI trims EXPORT_SYMBOL(yield) out of the KMI; schedule()
+	 * is exported and provides the same "give up the CPU" behaviour. */
+	schedule();
 #endif
 #ifdef PLATFORM_FREEBSD
 	yield();
@@ -2108,16 +2110,11 @@ inline bool ATOMIC_INC_UNLESS(ATOMIC_T *v, int u)
 */
 static int openFile(struct file **fpp, const char *path, int flag, int mode)
 {
-	struct file *fp;
-
-	fp = filp_open(path, flag, mode);
-	if (IS_ERR(fp)) {
-		*fpp = NULL;
-		return PTR_ERR(fp);
-	} else {
-		*fpp = fp;
-		return 0;
-	}
+	/* Android GKI: filp_open() is not part of the exported KMI. The
+	 * driver's file helpers are only used for optional debug/MP features,
+	 * so report "unsupported" instead. */
+	*fpp = NULL;
+	return -EOPNOTSUPP;
 }
 
 /*
@@ -2133,64 +2130,14 @@ static int closeFile(struct file *fp)
 
 static int readFile(struct file *fp, char *buf, int len)
 {
-	int rlen = 0, sum = 0;
-
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 1, 0))
-	if (!(fp->f_mode & FMODE_CAN_READ))
-#else
-	if (!fp->f_op || !fp->f_op->read)
-#endif
-		return -EPERM;
-
-	while (sum < len) {
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0))
-		rlen = kernel_read(fp, buf + sum, len - sum, &fp->f_pos);
-#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 1, 0))
-		rlen = __vfs_read(fp, buf + sum, len - sum, &fp->f_pos);
-#else
-		rlen = fp->f_op->read(fp, buf + sum, len - sum, &fp->f_pos);
-#endif
-		if (rlen > 0)
-			sum += rlen;
-		else if (0 != rlen)
-			return rlen;
-		else
-			break;
-	}
-
-	return  sum;
-
+	/* Android GKI: kernel_read() is not exported. */
+	return -EOPNOTSUPP;
 }
 
 static int writeFile(struct file *fp, char *buf, int len)
 {
-	int wlen = 0, sum = 0;
-
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 1, 0))
-	if (!(fp->f_mode & FMODE_CAN_WRITE))
-#else
-	if (!fp->f_op || !fp->f_op->write)
-#endif
-		return -EPERM;
-
-	while (sum < len) {
-#if (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 14, 0))
-		wlen = kernel_write(fp, buf + sum, len - sum, &fp->f_pos);
-#elif (LINUX_VERSION_CODE >= KERNEL_VERSION(4, 1, 0))
-		wlen = __vfs_write(fp, buf + sum, len - sum, &fp->f_pos);
-#else
-		wlen = fp->f_op->write(fp, buf + sum, len - sum, &fp->f_pos);
-#endif
-		if (wlen > 0)
-			sum += wlen;
-		else if (0 != wlen)
-			return wlen;
-		else
-			break;
-	}
-
-	return sum;
-
+	/* Android GKI: kernel_write() is not exported. */
+	return -EOPNOTSUPP;
 }
 
 /*
@@ -2201,10 +2148,8 @@ static int writeFile(struct file *fp, char *buf, int len)
 */
 static int isDirReadable(const char *pathname, u32 *sz)
 {
-	struct path path;
-	int error = 0;
-
-	return kern_path(pathname, LOOKUP_FOLLOW, &path);
+	/* Android GKI: kern_path() is not exported. */
+	return -EOPNOTSUPP;
 }
 
 /*
@@ -2215,43 +2160,8 @@ static int isDirReadable(const char *pathname, u32 *sz)
 */
 static int isFileReadable(const char *path, u32 *sz)
 {
-	struct file *fp;
-	int ret = 0;
-	#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0))
-	mm_segment_t oldfs;
-	#endif
-	char buf;
-
-	fp = filp_open(path, O_RDONLY, 0);
-	if (IS_ERR(fp))
-		ret = PTR_ERR(fp);
-	else {
-		#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0))
-		oldfs = get_fs();
-		#if (LINUX_VERSION_CODE >= KERNEL_VERSION(5, 1, 0))
-		set_fs(KERNEL_DS);
-		#else
-		set_fs(get_ds());
-		#endif
-		#endif
-
-		if (1 != readFile(fp, &buf, 1))
-			ret = PTR_ERR(fp);
-
-		if (ret == 0 && sz) {
-			#if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 19, 0))
-			*sz = i_size_read(fp->f_path.dentry->d_inode);
-			#else
-			*sz = i_size_read(fp->f_dentry->d_inode);
-			#endif
-		}
-
-		#if (LINUX_VERSION_CODE < KERNEL_VERSION(5, 10, 0))
-		set_fs(oldfs);
-		#endif
-		filp_close(fp, NULL);
-	}
-	return ret;
+	/* Android GKI: filp_open()/i_size_read() are not exported. */
+	return -EOPNOTSUPP;
 }
 
 /*

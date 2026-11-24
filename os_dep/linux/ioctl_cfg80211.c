@@ -436,7 +436,8 @@ u8 rtw_cfg80211_ch_switch_notify(_adapter *adapter, u8 ch, u8 bw, u8 offset,
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0) && (LINUX_VERSION_CODE < KERNEL_VERSION(6, 9, 0)))
 		cfg80211_ch_switch_started_notify(adapter->pnetdev, &chdef, 0, 0, false, 0);
 #else
-		cfg80211_ch_switch_started_notify(adapter->pnetdev, &chdef, 0, 0, false);
+		/* 6.9+ signature; also backported into ACK android14-6.1 (6.1.118) */
+		cfg80211_ch_switch_started_notify(adapter->pnetdev, &chdef, 0, 0, false, 0);
 #endif
 #else
 		cfg80211_ch_switch_started_notify(adapter->pnetdev, &chdef, 0, false);
@@ -455,7 +456,8 @@ u8 rtw_cfg80211_ch_switch_notify(_adapter *adapter, u8 ch, u8 bw, u8 offset,
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(6, 3, 0) && (LINUX_VERSION_CODE < KERNEL_VERSION(6, 9, 0)))
 	cfg80211_ch_switch_notify(adapter->pnetdev, &chdef, 0, 0);
 #else
-	cfg80211_ch_switch_notify(adapter->pnetdev, &chdef, 0);
+	/* 6.9+ signature; also backported into ACK android14-6.1 (6.1.118) */
+	cfg80211_ch_switch_notify(adapter->pnetdev, &chdef, 0, 0);
 #endif
 #else
 	cfg80211_ch_switch_notify(adapter->pnetdev, &chdef);
@@ -4514,9 +4516,9 @@ static int rtw_cfg80211_monitor_if_close(struct net_device *ndev)
 	return ret;
 }
 
-static int rtw_cfg80211_monitor_if_xmit_entry(struct sk_buff *skb, struct net_device *ndev)
+static netdev_tx_t rtw_cfg80211_monitor_if_xmit_entry(struct sk_buff *skb, struct net_device *ndev)
 {
-	int ret = 0;
+	netdev_tx_t ret = NETDEV_TX_OK;
 	int rtap_len;
 	int qos_len = 0;
 	int dot11_hdr_len = 24;
@@ -9629,13 +9631,20 @@ static void rtw_cfg80211_preinit_wiphy(_adapter *adapter, struct wiphy *wiphy)
 #endif
 #endif
 
-#if defined(CONFIG_PM) && (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0))
+#if defined(CONFIG_PM) && (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 0, 0)) && \
+    (LINUX_VERSION_CODE < KERNEL_VERSION(6, 1, 0))
 #if (LINUX_VERSION_CODE < KERNEL_VERSION(3, 11, 0))
 	wiphy->wowlan = wowlan_stub;
 #else
 	wiphy->wowlan = &wowlan_stub;
 #endif
 #endif
+/*
+ * 6.1+ cfg80211 rejects a wiphy whose wowlan support has no flags, no
+ * patterns and no tcp (net/wireless/core.c: wiphy_register() returns
+ * -EINVAL), which is exactly what wowlan_stub is. Leaving wowlan NULL
+ * is fine: without it cfg80211 won't try to disable wowlan on suspend.
+ */
 
 #if defined(CONFIG_TDLS) && (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 2, 0))
 	wiphy->flags |= WIPHY_FLAG_SUPPORTS_TDLS;
@@ -10113,13 +10122,70 @@ int rtw_wiphy_register(struct wiphy *wiphy)
 {
 	RTW_INFO(FUNC_WIPHY_FMT"\n", FUNC_WIPHY_ARG(wiphy));
 
+	pr_info("RTWDBG: max_acl=%u have_ap_sme=%u set_mac_acl=%ps stop_p2p=%ps cancel_roc=%ps start_p2p=%ps roc=%ps\n",
+		wiphy->max_acl_mac_addrs,
+		!!(wiphy->flags & WIPHY_FLAG_HAVE_AP_SME),
+		rtw_cfg80211_ops.set_mac_acl,
+		rtw_cfg80211_ops.stop_p2p_device,
+		rtw_cfg80211_ops.cancel_remain_on_channel,
+		rtw_cfg80211_ops.start_p2p_device,
+		rtw_cfg80211_ops.remain_on_channel);
+
+	pr_info("RTWDBG_OFF: max_acl=%zu flags=%zu perm_addr=%zu addresses=%zu ifmodes=%zu sizeof=%zu\n",
+		offsetof(struct wiphy, max_acl_mac_addrs),
+		offsetof(struct wiphy, flags),
+		offsetof(struct wiphy, perm_addr),
+		offsetof(struct wiphy, addresses),
+		offsetof(struct wiphy, interface_modes),
+		sizeof(struct wiphy));
+
+	/* evaluate exactly the checks cfg80211 will perform */
+	pr_info("RTWDBG_CHK: addkey=%d auth=%d connect=%d ibss=%d vif=%d sta=%d mpath=%d mesh=%d p2pdev=%d ap=%d ocb=%d susp=%d scan=%d roc=%d tdls=%d txts=%d\n",
+		rtw_cfg80211_ops.add_key && (!rtw_cfg80211_ops.del_key || !rtw_cfg80211_ops.set_default_key),
+		rtw_cfg80211_ops.auth && (!rtw_cfg80211_ops.assoc || !rtw_cfg80211_ops.deauth || !rtw_cfg80211_ops.disassoc),
+		rtw_cfg80211_ops.connect && !rtw_cfg80211_ops.disconnect,
+		rtw_cfg80211_ops.join_ibss && !rtw_cfg80211_ops.leave_ibss,
+		rtw_cfg80211_ops.add_virtual_intf && !rtw_cfg80211_ops.del_virtual_intf,
+		rtw_cfg80211_ops.add_station && !rtw_cfg80211_ops.del_station,
+		rtw_cfg80211_ops.add_mpath && !rtw_cfg80211_ops.del_mpath,
+		rtw_cfg80211_ops.join_mesh && !rtw_cfg80211_ops.leave_mesh,
+		rtw_cfg80211_ops.start_p2p_device && !rtw_cfg80211_ops.stop_p2p_device,
+		rtw_cfg80211_ops.start_ap && !rtw_cfg80211_ops.stop_ap,
+		rtw_cfg80211_ops.join_ocb && !rtw_cfg80211_ops.leave_ocb,
+		rtw_cfg80211_ops.suspend && !rtw_cfg80211_ops.resume,
+		rtw_cfg80211_ops.sched_scan_start && !rtw_cfg80211_ops.sched_scan_stop,
+		rtw_cfg80211_ops.remain_on_channel && !rtw_cfg80211_ops.cancel_remain_on_channel,
+		rtw_cfg80211_ops.tdls_channel_switch && !rtw_cfg80211_ops.tdls_cancel_channel_switch,
+		rtw_cfg80211_ops.add_tx_ts && !rtw_cfg80211_ops.del_tx_ts);
+
+	pr_info("RTWDBG_REG: addr_mismatch=%d acl_bad=%d bsssel_bad=%d pmk_bad=%d roam_bad=%d ifmodes_mismatch=%d\n",
+		wiphy->addresses && !is_zero_ether_addr(wiphy->perm_addr) &&
+			memcmp(wiphy->perm_addr, wiphy->addresses[0].addr, ETH_ALEN),
+		wiphy->max_acl_mac_addrs &&
+			(!(wiphy->flags & WIPHY_FLAG_HAVE_AP_SME) || !rtw_cfg80211_ops.set_mac_acl),
+		wiphy->bss_select_support &&
+			(wiphy->bss_select_support & ~(BIT(__NL80211_BSS_SELECT_ATTR_AFTER_LAST) - 2)),
+		wiphy_ext_feature_isset(wiphy, NL80211_EXT_FEATURE_4WAY_HANDSHAKE_STA_1X) &&
+			(!rtw_cfg80211_ops.set_pmk || !rtw_cfg80211_ops.del_pmk),
+		!(wiphy->flags & WIPHY_FLAG_SUPPORTS_FW_ROAM) && rtw_cfg80211_ops.update_connect_params,
+		wiphy->interface_modes);
+
 #if (LINUX_VERSION_CODE >= KERNEL_VERSION(3, 14, 0)) || defined(RTW_VENDOR_EXT_SUPPORT)
 	rtw_cfgvendor_attach(wiphy);
 #endif
 
 	rtw_regd_init(wiphy);
 
-	return wiphy_register(wiphy);
+	{
+		int rc = wiphy_register(wiphy);
+
+		pr_info("RTWDBG_REG_RC: rc=%d perm=%pM addr0=%pM addresses=%px n_addr=%u flags=%08x max_acl=%u\n",
+			rc, wiphy->perm_addr,
+			wiphy->addresses ? wiphy->addresses[0].addr : NULL,
+			wiphy->addresses, wiphy->n_addresses,
+			wiphy->flags, wiphy->max_acl_mac_addrs);
+		return rc;
+	}
 }
 
 void rtw_wiphy_unregister(struct wiphy *wiphy)

@@ -17,6 +17,12 @@
 #include <drv_types.h>
 #include <hal_data.h>
 
+/* kCFI: tasklet callbacks must be void (*)(unsigned long) */
+static void recv_tasklet_cfi(unsigned long data)
+{
+	usb_recv_tasklet((void *)data);
+}
+
 int	usb_init_recv_priv(_adapter *padapter, u16 ini_in_buf_sz)
 {
 	struct recv_priv	*precvpriv = &padapter->recvpriv;
@@ -25,8 +31,7 @@ int	usb_init_recv_priv(_adapter *padapter, u16 ini_in_buf_sz)
 
 #ifdef PLATFORM_LINUX
 	tasklet_init(&precvpriv->recv_tasklet,
-		     (void(*))usb_recv_tasklet,
-		     (unsigned long)padapter);
+		     recv_tasklet_cfi, (unsigned long)padapter);
 #endif /* PLATFORM_LINUX */
 
 #ifdef PLATFORM_FREEBSD

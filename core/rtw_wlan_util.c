@@ -4777,6 +4777,13 @@ int rtw_dev_nlo_info_set(struct pno_nlo_info *nlo_info, pno_ssid_t *ssid,
 	}
 
 	/* cipher array */
+	/* Android GKI: filp_open()/i_size_read()/kernel_read() are not exported,
+	 * so the cipher array keeps the driver's default value. */
+	if (1) {
+		RTW_INFO("GKI: cannot read wpa_supplicant.conf, cipher array using default value.\n");
+		return 0;
+	}
+
 	fp = filp_open("/data/misc/wifi/wpa_supplicant.conf", O_RDONLY,  0644);
 	if (IS_ERR(fp)) {
 		RTW_INFO("Error, wpa_supplicant.conf doesn't exist.\n");

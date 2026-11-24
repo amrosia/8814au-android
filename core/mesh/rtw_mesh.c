@@ -3065,6 +3065,12 @@ void rtw_mesh_cfg_init_plink_timeout(_adapter *adapter, u32 stack_conf)
 	mcfg->plink_timeout = stack_conf;
 }
 
+/* kCFI: tasklet callbacks must be void (*)(unsigned long) */
+static void mpath_tx_tasklet_cfi(unsigned long data)
+{
+	mpath_tx_tasklet_hdl((void *)data);
+}
+
 void rtw_mesh_init_mesh_info(_adapter *adapter)
 {
 	struct rtw_mesh_info *minfo = &adapter->mesh_info;
@@ -3082,7 +3088,7 @@ void rtw_mesh_init_mesh_info(_adapter *adapter)
 
 	_rtw_init_queue(&minfo->mpath_tx_queue);
 	tasklet_init(&minfo->mpath_tx_tasklet
-		, (void(*))mpath_tx_tasklet_hdl
+		, mpath_tx_tasklet_cfi
 		, (unsigned long)adapter);
 
 	rtw_mrc_init(adapter);
