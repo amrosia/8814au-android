@@ -223,9 +223,27 @@ minimal userspace stack used for testing (Android has no python/aircrack):
   `adb shell -t '...'` or a terminal emulator.
 
 Observed result on the tested device: 79 targets / 28 clients on 2.4 GHz
-(channels 1-13), radiotap frames from the driver. **Packet injection has not
-been validated yet**, so deauth/handshake-capture attacks are untested; passive
-discovery works.
+(channels 1-13), radiotap frames from the driver. **Packet injection is
+validated**: `aireplay-ng -9` reports "Injection is working!" with 30/30 ping
+success, directed deauths (code 7) are ACKed by the AP, and a full
+`airodump-ng` + `aireplay-ng --deauth` run captured a valid WPA 4-way
+handshake (confirmed by `tshark` and by `aircrack-ng` performing the PTK/HMAC
+calculation).
+
+Two caveats when auditing the AP the tablet itself is associated with:
+
+* wifite deauthenticates *all* clients, including the tablet, so the tablet's
+  own `wlan0` link drops -- and with it anything running over that link (ssh,
+  adb over Tailscale, etc.). Prefer a second uplink or a second device.
+* to capture a handshake without losing the local link, deauth a single other
+  client instead: `aireplay-ng --deauth 12 -a <bssid> -c <client> <mon_iface>`
+  while `airodump-ng --bssid <bssid> -c <ch> -w cap <mon_iface>` records.
+
+wifite needs `tshark` in the chroot for handshake detection (without it,
+`--check` fails with "Cannot find BSSID or ESSID"), and its
+`wifite/tools/tshark.py` passes the display filter pre-quoted
+(`'-Y', '"wlan.fc.type_subtype == 0x08 || ..."'`), which tshark 4.x rejects
+("too long to be a valid character constant"); drop the inner quotes.
 
 ## Known limitations
 
