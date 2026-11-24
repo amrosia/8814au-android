@@ -193,6 +193,40 @@ The only diagnostics in the source are a handful of `RTWDBG*` `pr_info()` calls
 in `ioctl_cfg80211.c` (`rtw_wiphy_register()`), left in from bring-up. They are
 harmless and can be deleted; rebuild afterwards if you want a clean dmesg.
 
+## Monitor mode and wifite
+
+Monitor mode works, but only on the **main** interface: this driver enters
+monitor state through `change_virtual_intf` → `Ndis802_11Monitor`. A separate
+vif created with `iw dev wlan1 interface add mon0 type monitor` registers fine
+but never receives frames, so point tools at `wlan1` itself.
+
+```sh
+# wlan1 must be down while the type is changed
+ip link set wlan1 down
+iw dev wlan1 set type monitor
+ip link set wlan1 up
+# optional: iw dev wlan1 set channel 6
+```
+
+`airmon-ng start wlan1` then reports "monitor mode already enabled" and does
+not create a vif. Note that changing the type back (`iw dev wlan1 set type
+managed`) works the same way.
+
+minimal userspace stack used for testing (Android has no python/aircrack):
+
+* Alpine arm64 minirootfs unpacked to `/data/local/tmp/alpine`, entered with
+  `chroot` (bind-mount `/proc`, `/sys`, `/dev`),
+* `apk add python3 py3-pip iw aircrack-ng wireless-tools iproute2 rfkill procps pciutils`,
+* `wifite` from the upstream source tree (`Wifite.py`); the PyPI package
+  currently installs a broken layout,
+* wifite needs a TTY (`stty size`), so run it via a pty, e.g.
+  `adb shell -t '...'` or a terminal emulator.
+
+Observed result on the tested device: 79 targets / 28 clients on 2.4 GHz
+(channels 1-13), radiotap frames from the driver. **Packet injection has not
+been validated yet**, so deauth/handshake-capture attacks are untested; passive
+discovery works.
+
 ## Known limitations
 
 * Out-of-tree module ⇒ must be rebuilt for every kernel that changes the ABI.
